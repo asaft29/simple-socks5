@@ -8,8 +8,10 @@ repository = "https://github.com/asaft29/SOCKRS5"
 readme = "README.md"
 
 [lib]
-name = "SOCKRS5"
+name = "sockrs5"
 path = "src/lib.rs"
 
 [dependencies]
+anyhow = "1.0.99"
+thiserror = "2.0.16"
 tokio = { version = "1.47.1", features = ["full"] }
