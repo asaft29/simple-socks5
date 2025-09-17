@@ -1,0 +1,15 @@
+[package]
+name = "SOCKRS5"
+version = "0.1.0"
+edition = "2024"
+authors = ["Rares-Stefan Asaftei <rasaft29@gmail.com>"]
+license = "MIT"
+repository = "https://github.com/asaft29/SOCKRS5"
+readme = "README.md"
+
+[lib]
+name = "SOCKRS5"
+path = "src/lib.rs"
+
+[dependencies]
+tokio = { version = "1.47.1", features = ["full"] }
