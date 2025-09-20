@@ -1,6 +1,5 @@
 use crate::ATYP;
-use crate::parse::parse_ip_port; // import the helper
-use std::net::{Ipv4Addr, Ipv6Addr};
+use crate::parse::{AddrPort, Parse};
 
 #[repr(u8)]
 #[derive(Debug, Copy, Clone)]
@@ -11,19 +10,12 @@ pub enum CMD {
 }
 
 #[derive(Debug)]
-pub enum Destination {
-    V4(Ipv4Addr, u16),
-    V6(Ipv6Addr, u16),
-    Domain(String, u16),
-}
-
-#[derive(Debug)]
 pub struct Request {
     pub ver: u8, // 0x05
     pub cmd: CMD,
     pub rsv: u8, // 0x00
     pub atyp: ATYP,
-    pub dst: Destination,
+    pub dst: AddrPort,
 }
 impl Request {
     pub fn from_bytes(buf: &[u8]) -> Option<Request> {
@@ -48,17 +40,17 @@ impl Request {
 
         let dst = match atyp {
             ATYP::V4 => {
-                let (ip_port, _) = parse_ip_port(&buf[4..], 0x01)?;
-                if let crate::parse::IpPort::V4(ip, port) = ip_port {
-                    Destination::V4(ip, port)
+                let (ip_port, _) = Parse::parse_ip_port(&buf[4..], 0x01)?;
+                if let AddrPort::V4(ip, port) = ip_port {
+                    AddrPort::V4(ip, port)
                 } else {
                     return None;
                 }
             }
             ATYP::V6 => {
-                let (ip_port, _) = parse_ip_port(&buf[4..], 0x04)?;
-                if let crate::parse::IpPort::V6(ip, port) = ip_port {
-                    Destination::V6(ip, port)
+                let (ip_port, _) = Parse::parse_ip_port(&buf[4..], 0x04)?;
+                if let AddrPort::V6(ip, port) = ip_port {
+                    AddrPort::V6(ip, port)
                 } else {
                     return None;
                 }
@@ -70,7 +62,7 @@ impl Request {
                 }
                 let domain = String::from_utf8_lossy(&buf[5..5 + len]).to_string();
                 let port = u16::from_be_bytes([buf[5 + len], buf[5 + len + 1]]);
-                Destination::Domain(domain, port)
+                AddrPort::Domain(domain, port)
             }
         };
 
@@ -92,15 +84,15 @@ impl Request {
         buf.push(self.atyp as u8);
 
         match &self.dst {
-            Destination::V4(addr, port) => {
+            AddrPort::V4(addr, port) => {
                 buf.extend_from_slice(&addr.octets());
                 buf.extend_from_slice(&port.to_be_bytes());
             }
-            Destination::V6(addr, port) => {
+            AddrPort::V6(addr, port) => {
                 buf.extend_from_slice(&addr.octets());
                 buf.extend_from_slice(&port.to_be_bytes());
             }
-            Destination::Domain(name, port) => {
+            AddrPort::Domain(name, port) => {
                 buf.push(name.len() as u8);
                 buf.extend_from_slice(name.as_bytes());
                 buf.extend_from_slice(&port.to_be_bytes());

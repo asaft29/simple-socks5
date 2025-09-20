@@ -9,6 +9,7 @@ pub mod reply;
 pub mod request;
 
 use method::*;
+use parse::AddrPort;
 use reply::*;
 use request::*;
 
@@ -109,39 +110,37 @@ async fn handle_client(mut stream: TcpStream) -> Result<()> {
     println!("  Address type: {:?}", request.atyp);
 
     match &request.dst {
-        request::Destination::V4(ip, port) => {
-            println!("  Destination: IPv4 {}:{}", ip, port);
+        AddrPort::V4(ip, port) => {
+            println!("  AddrPort: IPv4 {}:{}", ip, port);
         }
-        request::Destination::V6(ip, port) => {
-            println!("  Destination: IPv6 [{}]:{}", ip, port);
+        AddrPort::V6(ip, port) => {
+            println!("  AddrPort: IPv6 [{}]:{}", ip, port);
         }
-        request::Destination::Domain(name, port) => {
-            println!("  Destination: Domain {}:{}", name, port);
+        AddrPort::Domain(name, port) => {
+            println!("  AddrPort: Domain {}:{}", name, port);
         }
     }
 
     let target_result = match &request.dst {
-        request::Destination::V4(ip, port) => TcpStream::connect((*ip, *port)).await,
-        request::Destination::V6(ip, port) => TcpStream::connect((*ip, *port)).await,
-        request::Destination::Domain(name, port) => {
-            TcpStream::connect((name.as_str(), *port)).await
-        }
+        AddrPort::V4(ip, port) => TcpStream::connect((*ip, *port)).await,
+        AddrPort::V6(ip, port) => TcpStream::connect((*ip, *port)).await,
+        AddrPort::Domain(name, port) => TcpStream::connect((name.as_str(), *port)).await,
     };
 
     let reply = match target_result {
         Ok(target_stream) => {
             let local_addr = target_stream.local_addr()?;
             let bnd = match local_addr.ip() {
-                IpAddr::V4(ip) => Bnd::V4(ip, local_addr.port()),
-                IpAddr::V6(ip) => Bnd::V6(ip, local_addr.port()),
+                IpAddr::V4(ip) => AddrPort::V4(ip, local_addr.port()),
+                IpAddr::V6(ip) => AddrPort::V6(ip, local_addr.port()),
             };
             Reply {
                 ver: VER5,
                 rep: Rep::Succeeded,
                 rsv: 0x00,
                 atyp: match bnd {
-                    Bnd::V4(_, _) => ATYP::V4,
-                    Bnd::V6(_, _) => ATYP::V6,
+                    AddrPort::V4(_, _) => ATYP::V4,
+                    AddrPort::V6(_, _) => ATYP::V6,
                     _ => ATYP::DomainName,
                 },
                 bnd,
@@ -152,7 +151,7 @@ async fn handle_client(mut stream: TcpStream) -> Result<()> {
             rep: Rep::HostUnreachable,
             rsv: 0x00,
             atyp: ATYP::V4,
-            bnd: Bnd::V4(Ipv4Addr::UNSPECIFIED, 0),
+            bnd: AddrPort::V4(Ipv4Addr::UNSPECIFIED, 0),
         },
     };
 
