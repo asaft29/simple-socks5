@@ -76,6 +76,7 @@ impl Socks5 {
 async fn handle_client(mut stream: TcpStream) -> Result<()> {
     let mut buf = [0u8; 256];
 
+    // --- SOCKS5 handshake ---
     let n = stream.read(&mut buf).await?;
     let version_msg =
         VersionMessage::from_bytes(&buf[..n]).ok_or(anyhow::anyhow!("Invalid version message"))?;
@@ -100,6 +101,7 @@ async fn handle_client(mut stream: TcpStream) -> Result<()> {
         return Ok(());
     }
 
+    // --- SOCKS5 request ---
     let n = stream.read(&mut buf).await?;
     let request = Request::from_bytes(&buf[..n]).ok_or(anyhow::anyhow!("Invalid request"))?;
 
@@ -127,41 +129,48 @@ async fn handle_client(mut stream: TcpStream) -> Result<()> {
         AddrPort::Domain(name, port) => TcpStream::connect((name.as_str(), *port)).await,
     };
 
-    let reply = match target_result {
-        Ok(target_stream) => {
-            let local_addr = target_stream.local_addr()?;
-            let bnd = match local_addr.ip() {
-                IpAddr::V4(ip) => AddrPort::V4(ip, local_addr.port()),
-                IpAddr::V6(ip) => AddrPort::V6(ip, local_addr.port()),
-            };
-            Reply {
+    let mut target_stream = match target_result {
+        Ok(s) => s,
+        Err(_) => {
+            println!("Failed to connect to target");
+            let reply = Reply {
                 ver: VER5,
-                rep: Rep::Succeeded,
+                rep: Rep::HostUnreachable,
                 rsv: 0x00,
-                atyp: match bnd {
-                    AddrPort::V4(_, _) => ATYP::V4,
-                    AddrPort::V6(_, _) => ATYP::V6,
-                    _ => ATYP::DomainName,
-                },
-                bnd,
-            }
+                atyp: ATYP::V4,
+                bnd: AddrPort::V4(Ipv4Addr::UNSPECIFIED, 0),
+            };
+            stream.write_all(&reply.to_bytes()).await?;
+            stream.shutdown().await?;
+            return Ok(());
         }
-        Err(_) => Reply {
-            ver: VER5,
-            rep: Rep::HostUnreachable,
-            rsv: 0x00,
-            atyp: ATYP::V4,
-            bnd: AddrPort::V4(Ipv4Addr::UNSPECIFIED, 0),
+    };
+
+    let local_addr = target_stream.local_addr()?;
+    let bnd = match local_addr.ip() {
+        IpAddr::V4(ip) => AddrPort::V4(ip, local_addr.port()),
+        IpAddr::V6(ip) => AddrPort::V6(ip, local_addr.port()),
+    };
+    let reply = Reply {
+        ver: VER5,
+        rep: Rep::Succeeded,
+        rsv: 0x00,
+        atyp: match bnd {
+            AddrPort::V4(_, _) => ATYP::V4,
+            AddrPort::V6(_, _) => ATYP::V6,
+            _ => ATYP::DomainName,
         },
+        bnd,
     };
 
     stream.write_all(&reply.to_bytes()).await?;
 
-    if reply.rep != Rep::Succeeded {
-        stream.shutdown().await?;
-        return Ok(());
+    if tokio::io::copy_bidirectional(&mut stream, &mut target_stream)
+        .await
+        .is_err()
+    {
+        println!("Connection between the browser and the proxy was closed");
     }
 
-    // 5️⃣TODO: forward data between client and target
     Ok(())
 }

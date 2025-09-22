@@ -76,12 +76,7 @@ impl Request {
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {
-        let mut buf = Vec::new();
-
-        buf.push(self.ver);
-        buf.push(self.cmd as u8);
-        buf.push(self.rsv);
-        buf.push(self.atyp as u8);
+        let mut buf = vec![self.ver, self.cmd as u8, self.rsv, self.atyp as u8];
 
         match &self.dst {
             AddrPort::V4(addr, port) => {
