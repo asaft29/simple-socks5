@@ -1,7 +1,8 @@
 use std::net::{Ipv4Addr, Ipv6Addr};
 
 /// Helper enum to represent an IP address and port
-#[derive(Debug)]
+
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub enum AddrPort {
     V4(Ipv4Addr, u16),
     V6(Ipv6Addr, u16),

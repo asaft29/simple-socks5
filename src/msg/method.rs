@@ -2,7 +2,7 @@
 use anyhow::{Result, anyhow};
 
 /// Trait to convert to and from u8
-pub(crate) trait ToFromU8: Sized {
+pub trait ToFromU8: Sized {
     fn to_u8(self) -> u8;
     fn from_u8(byte: u8) -> Result<Self>;
 }
@@ -10,7 +10,7 @@ pub(crate) trait ToFromU8: Sized {
 /// Represents the fixed SOCKS5 authentication methods.
 #[repr(u8)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum FixedMethod {
+pub enum FixedMethod {
     NoAuth = 0x00,
     GssApi = 0x01,
     UsePass = 0x02,
@@ -31,7 +31,7 @@ impl std::fmt::Display for FixedMethod {
 
 /// Represents any SOCKS5 method, including fixed, IANA-assigned, and private ranges.
 #[derive(PartialEq, Eq, Copy, Clone, Debug)]
-pub(crate) enum Method {
+pub enum Method {
     Fixed(FixedMethod),
     IanaAssigned(u8),
     Private(u8),

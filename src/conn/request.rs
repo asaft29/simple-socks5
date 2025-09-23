@@ -10,15 +10,24 @@ pub enum CMD {
 }
 
 #[derive(Debug)]
-pub struct Request {
+pub struct ConnRequest {
     pub ver: u8, // 0x05
     pub cmd: CMD,
     pub rsv: u8, // 0x00
     pub atyp: ATYP,
     pub dst: AddrPort,
 }
-impl Request {
-    pub fn from_bytes(buf: &[u8]) -> Option<Request> {
+impl ConnRequest {
+    pub fn new(ver: u8, cmd: CMD, rsv: u8, atyp: ATYP, dst: AddrPort) -> Self {
+        Self {
+            ver,
+            cmd,
+            rsv,
+            atyp,
+            dst,
+        }
+    }
+    pub fn from_bytes(buf: &[u8]) -> Option<ConnRequest> {
         if buf.len() < 4 {
             return None;
         }
@@ -66,7 +75,7 @@ impl Request {
             }
         };
 
-        Some(Request {
+        Some(ConnRequest {
             ver,
             cmd,
             rsv,

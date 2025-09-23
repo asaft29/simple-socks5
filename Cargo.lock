@@ -7,6 +7,7 @@ name = "SOCKRS5"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "dotenv",
  "thiserror",
  "tokio",
 ]
@@ -70,6 +71,12 @@ name = "cfg-if"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2fd1289c04a9ea8cb22300a459a72a385d7c73d3259e2ed7dcb2af674838cfa9"
+
+[[package]]
+name = "dotenv"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77c90badedccf4105eca100756a0b1289e191f6fcbdadd3cee1d2f614f97da8f"
 
 [[package]]
 name = "gimli"

@@ -13,5 +13,6 @@ path = "src/lib.rs"
 
 [dependencies]
 anyhow = "1.0.99"
+dotenv = "0.15.0"
 thiserror = "2.0.16"
 tokio = { version = "1.47.1", features = ["full"] }

@@ -1,52 +1,34 @@
 use anyhow::Result;
+use std::env;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
-pub mod method;
+pub mod auth;
+pub mod conn;
+pub mod msg;
 pub mod parse;
-pub mod reply;
-pub mod request;
 
-use method::*;
+use auth::reply::*;
+use auth::request::*;
+use conn::reply::*;
+use conn::request::*;
+use msg::message::*;
+use msg::method::*;
 use parse::AddrPort;
-use reply::*;
-use request::*;
 
 pub type V4 = Ipv4Addr;
 pub type V6 = Ipv6Addr;
 
 const VER5: u8 = 0x05;
+const RSV: u8 = 0x00;
 
 #[repr(u8)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum ATYP {
     V4 = 0x01,
     DomainName = 0x03,
     V6 = 0x04,
-}
-
-struct VersionMessage {
-    ver: u8,
-    methods: Vec<Method>,
-}
-
-impl VersionMessage {
-    fn from_bytes(buf: &[u8]) -> Option<VersionMessage> {
-        if buf.len() < 2 {
-            return None;
-        }
-        let ver = buf[0];
-        let nmeth = buf[1] as usize;
-        if buf.len() < 2 + nmeth {
-            return None;
-        }
-        let methods = buf[2..2 + nmeth]
-            .iter()
-            .filter_map(|b| Method::from_u8(*b).ok())
-            .collect();
-        Some(VersionMessage { ver, methods })
-    }
 }
 
 pub struct Socks5 {
@@ -74,36 +56,64 @@ impl Socks5 {
 }
 
 async fn handle_client(mut stream: TcpStream) -> Result<()> {
-    let mut buf = [0u8; 256];
+    let mut buf = [0u8; 512];
 
     // --- SOCKS5 handshake ---
     let n = stream.read(&mut buf).await?;
-    let version_msg =
-        VersionMessage::from_bytes(&buf[..n]).ok_or(anyhow::anyhow!("Invalid version message"))?;
+    let version_msg = VersionMessage::try_from(&buf[..n])?;
+    println!("Client methods: {:?}", version_msg.get_methods());
 
-    println!(
-        "Client version: {}, methods: {:?}",
-        version_msg.ver, version_msg.methods
-    );
-
-    let method = if version_msg
+    let selected_method = version_msg
         .methods
-        .contains(&Method::Fixed(FixedMethod::NoAuth))
-    {
-        Method::Fixed(FixedMethod::NoAuth)
-    } else {
-        Method::Fixed(FixedMethod::NoAcceptable)
-    };
+        .iter()
+        .find_map(|m| match m {
+            Method::Fixed(FixedMethod::UsePass) => Some(Method::Fixed(FixedMethod::UsePass)),
+            Method::Fixed(FixedMethod::NoAuth) => Some(Method::Fixed(FixedMethod::NoAuth)),
+            _ => None,
+        })
+        .unwrap_or(Method::Fixed(FixedMethod::NoAcceptable));
 
-    stream.write_all(&[VER5, method.to_u8()]).await?;
-    if method == Method::Fixed(FixedMethod::NoAcceptable) {
+    let method_sel = msg::message::MethodSelection::new(selected_method);
+    stream.write_all(&method_sel.to_bytes()).await?;
+    if selected_method == Method::Fixed(FixedMethod::NoAcceptable) {
+        println!("No acceptable authentication methods.");
         stream.shutdown().await?;
         return Ok(());
     }
 
+    // --- Username/Password authentication (RFC 1929) ---
+    if selected_method == Method::Fixed(FixedMethod::UsePass) {
+        let n = stream.read(&mut buf).await?;
+        let auth_req = AuthRequest::try_from(&buf[..n])?;
+        println!(
+            "Auth request received: username={}, password={}",
+            auth_req.uname, auth_req.passwd
+        );
+
+        let expected_user = env::var("PROXY_USER")?;
+        let expected_pass = env::var("PROXY_PASS")?;
+
+        let auth_status = if auth_req.uname == expected_user && auth_req.passwd == expected_pass {
+            AuthStatus::Success
+        } else {
+            AuthStatus::Failure
+        };
+
+        let auth_reply = AuthReply::new(auth_status);
+        stream.write_all(&auth_reply.to_bytes()).await?;
+
+        if auth_status == AuthStatus::Failure {
+            println!("Authentication failed for user '{}'", auth_req.uname);
+            stream.shutdown().await?;
+            return Ok(());
+        }
+
+        println!("Authentication successful for user '{}'", auth_req.uname);
+    }
+
     // --- SOCKS5 request ---
     let n = stream.read(&mut buf).await?;
-    let request = Request::from_bytes(&buf[..n]).ok_or(anyhow::anyhow!("Invalid request"))?;
+    let request = ConnRequest::from_bytes(&buf[..n]).ok_or(anyhow::anyhow!("Invalid request"))?;
 
     println!("Received SOCKS5 request:");
     println!("  Version: {}", request.ver);
@@ -112,15 +122,9 @@ async fn handle_client(mut stream: TcpStream) -> Result<()> {
     println!("  Address type: {:?}", request.atyp);
 
     match &request.dst {
-        AddrPort::V4(ip, port) => {
-            println!("  AddrPort: IPv4 {}:{}", ip, port);
-        }
-        AddrPort::V6(ip, port) => {
-            println!("  AddrPort: IPv6 [{}]:{}", ip, port);
-        }
-        AddrPort::Domain(name, port) => {
-            println!("  AddrPort: Domain {}:{}", name, port);
-        }
+        AddrPort::V4(ip, port) => println!("  AddrPort: IPv4 {}:{}", ip, port),
+        AddrPort::V6(ip, port) => println!("  AddrPort: IPv6 [{}]:{}", ip, port),
+        AddrPort::Domain(name, port) => println!("  AddrPort: Domain {}:{}", name, port),
     }
 
     let target_result = match &request.dst {
@@ -133,13 +137,13 @@ async fn handle_client(mut stream: TcpStream) -> Result<()> {
         Ok(s) => s,
         Err(_) => {
             println!("Failed to connect to target");
-            let reply = Reply {
-                ver: VER5,
-                rep: Rep::HostUnreachable,
-                rsv: 0x00,
-                atyp: ATYP::V4,
-                bnd: AddrPort::V4(Ipv4Addr::UNSPECIFIED, 0),
-            };
+            let reply = ConnReply::new(
+                VER5,
+                Rep::HostUnreachable,
+                RSV,
+                ATYP::V4,
+                AddrPort::V4(Ipv4Addr::UNSPECIFIED, 0),
+            );
             stream.write_all(&reply.to_bytes()).await?;
             stream.shutdown().await?;
             return Ok(());
@@ -151,17 +155,18 @@ async fn handle_client(mut stream: TcpStream) -> Result<()> {
         IpAddr::V4(ip) => AddrPort::V4(ip, local_addr.port()),
         IpAddr::V6(ip) => AddrPort::V6(ip, local_addr.port()),
     };
-    let reply = Reply {
-        ver: VER5,
-        rep: Rep::Succeeded,
-        rsv: 0x00,
-        atyp: match bnd {
+
+    let reply = ConnReply::new(
+        VER5,
+        Rep::Succeeded,
+        RSV,
+        match bnd {
             AddrPort::V4(_, _) => ATYP::V4,
             AddrPort::V6(_, _) => ATYP::V6,
             _ => ATYP::DomainName,
         },
         bnd,
-    };
+    );
 
     stream.write_all(&reply.to_bytes()).await?;
 
