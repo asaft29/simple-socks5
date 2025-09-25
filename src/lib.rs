@@ -1,4 +1,3 @@
-use anyhow::Result;
 use std::env;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -6,6 +5,7 @@ use tokio::net::{TcpListener, TcpStream};
 
 pub mod auth;
 pub mod conn;
+pub mod error;
 pub mod msg;
 pub mod parse;
 
@@ -17,11 +17,14 @@ use msg::message::*;
 use msg::method::*;
 use parse::AddrPort;
 
+use crate::error::SocksError;
+
 pub type V4 = Ipv4Addr;
 pub type V6 = Ipv6Addr;
 
 const VER5: u8 = 0x05;
 const RSV: u8 = 0x00;
+const VER: u8 = 0x01;
 
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -36,18 +39,18 @@ pub struct Socks5 {
 }
 
 impl Socks5 {
-    pub async fn new(addr: &str) -> Result<Socks5> {
+    pub async fn new(addr: &str) -> Result<Socks5, SocksError> {
         let listener = TcpListener::bind(addr).await?;
         Ok(Socks5 { listener })
     }
 
-    pub async fn run(&mut self) -> Result<()> {
+    pub async fn run(&mut self) -> Result<(), SocksError> {
         println!("SOCKS5 server running on {:?}", self.listener.local_addr()?);
         loop {
-            let (stream, addr) = self.listener.accept().await?;
+            let (mut stream, addr) = self.listener.accept().await?;
             println!("Accepted connection from {:?}", addr);
             tokio::spawn(async move {
-                if let Err(e) = handle_client(stream).await {
+                if let Err(e) = handle_client(&mut stream).await {
                     eprintln!("Error handling client {}: {:?}", addr, e);
                 }
             });
@@ -55,13 +58,13 @@ impl Socks5 {
     }
 }
 
-async fn handle_client(mut stream: TcpStream) -> Result<()> {
+async fn handle_client(stream: &mut TcpStream) -> Result<(), SocksError> {
     let mut buf = [0u8; 512];
 
     // --- SOCKS5 handshake ---
     let n = stream.read(&mut buf).await?;
     let version_msg = VersionMessage::try_from(&buf[..n])?;
-    println!("Client methods: {:?}", version_msg.get_methods());
+    println!("Client methods: {:?}", version_msg.methods);
 
     let selected_method = version_msg
         .methods
@@ -90,8 +93,10 @@ async fn handle_client(mut stream: TcpStream) -> Result<()> {
             auth_req.uname, auth_req.passwd
         );
 
-        let expected_user = env::var("PROXY_USER")?;
-        let expected_pass = env::var("PROXY_PASS")?;
+        let expected_user =
+            env::var("PROXY_USER").map_err(|e| SocksError::AuthFailed(e.to_string()))?;
+        let expected_pass =
+            env::var("PROXY_PASS").map_err(|e| SocksError::AuthFailed(e.to_string()))?;
 
         let auth_status = if auth_req.uname == expected_user && auth_req.passwd == expected_pass {
             AuthStatus::Success
@@ -113,7 +118,7 @@ async fn handle_client(mut stream: TcpStream) -> Result<()> {
 
     // --- SOCKS5 request ---
     let n = stream.read(&mut buf).await?;
-    let request = ConnRequest::from_bytes(&buf[..n]).ok_or(anyhow::anyhow!("Invalid request"))?;
+    let request = ConnRequest::try_from(&buf[..n])?;
 
     println!("Received SOCKS5 request:");
     println!("  Version: {}", request.ver);
@@ -170,11 +175,11 @@ async fn handle_client(mut stream: TcpStream) -> Result<()> {
 
     stream.write_all(&reply.to_bytes()).await?;
 
-    if tokio::io::copy_bidirectional(&mut stream, &mut target_stream)
+    if tokio::io::copy_bidirectional(stream, &mut target_stream)
         .await
         .is_err()
     {
-        println!("Connection between the browser and the proxy was closed");
+        println!("TCP connection closed");
     }
 
     Ok(())

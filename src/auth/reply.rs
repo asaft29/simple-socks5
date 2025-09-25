@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow};
+use crate::error::SocksError;
 
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -23,19 +23,16 @@ impl AuthReply {
 }
 
 impl TryFrom<&[u8]> for AuthReply {
-    type Error = anyhow::Error;
+    type Error = SocksError;
 
-    fn try_from(bytes: &[u8]) -> Result<Self> {
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         if bytes.len() != 2 {
-            return Err(anyhow!(
-                "AuthReply must be exactly 2 bytes, got {}",
-                bytes.len()
-            ));
+            return Err(SocksError::AuthMessageTooShort);
         }
 
         let ver = bytes[0];
         if ver != 0x01 {
-            return Err(anyhow!("Invalid AuthReply version: {}", ver));
+            return Err(SocksError::UnsupportedAuthVersion(ver));
         }
 
         let status = match bytes[1] {

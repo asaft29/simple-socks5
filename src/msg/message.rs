@@ -1,5 +1,5 @@
 use super::method::*;
-use anyhow::{Result, anyhow};
+use crate::error::SocksError;
 
 /// Represents the SOCKS5 version/methods message from the client
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -9,39 +9,29 @@ pub struct VersionMessage {
 }
 
 impl TryFrom<&[u8]> for VersionMessage {
-    type Error = anyhow::Error;
+    type Error = SocksError;
 
-    fn try_from(bytes: &[u8]) -> Result<Self> {
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         if bytes.len() < 2 {
-            return Err(anyhow!("Version message too short"));
+            return Err(SocksError::VersionMessageTooShort);
         }
 
         let ver = bytes[0];
         if ver != 0x05 {
-            return Err(anyhow!("Unsupported SOCKS version: {ver}"));
+            return Err(SocksError::UnsupportedVersion(ver));
         }
 
         let nmethods = bytes[1] as usize;
         if bytes.len() < 2 + nmethods {
-            return Err(anyhow!("Incomplete version message"));
+            return Err(SocksError::IncompleteVersionMessage);
         }
 
-        let methods: Result<Vec<Method>> = bytes[2..2 + nmethods]
-            .iter()
-            .map(|b| Method::from_u8(*b))
-            .collect();
+        let mut methods = Vec::with_capacity(nmethods);
+        for b in &bytes[2..2 + nmethods] {
+            methods.push(Method::from_u8(*b)?);
+        }
 
-        Ok(Self {
-            ver,
-            methods: methods?,
-        })
-    }
-}
-
-impl VersionMessage {
-    /// Returns a copy of the methods
-    pub fn get_methods(&self) -> Vec<Method> {
-        self.methods.clone()
+        Ok(Self { ver, methods })
     }
 }
 
@@ -53,13 +43,29 @@ pub struct MethodSelection {
 }
 
 impl MethodSelection {
-    /// Creates a new method selection response
     pub fn new(method: Method) -> Self {
         Self { ver: 0x05, method }
     }
 
-    /// Converts the method selection into the 2-byte RFC 1928 message
     pub fn to_bytes(&self) -> [u8; 2] {
         [self.ver, self.method.to_u8()]
+    }
+}
+
+impl TryFrom<&[u8]> for MethodSelection {
+    type Error = SocksError;
+
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+        if bytes.len() < 2 {
+            return Err(SocksError::VersionMessageTooShort);
+        }
+
+        let ver = bytes[0];
+        if ver != 0x05 {
+            return Err(SocksError::UnsupportedVersion(ver));
+        }
+
+        let method = Method::from_u8(bytes[1])?;
+        Ok(Self { ver, method })
     }
 }

@@ -1,6 +1,6 @@
 use crate::ATYP;
+use crate::error::SocksError;
 use crate::parse::{AddrPort, Parse};
-use anyhow::anyhow;
 
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -35,71 +35,6 @@ impl ConnReply {
             bnd,
         }
     }
-    pub fn from_bytes(buf: &[u8]) -> Option<ConnReply> {
-        if buf.len() < 4 {
-            return None;
-        }
-
-        let ver = buf[0];
-
-        let rep = match buf[1] {
-            0x00 => Rep::Succeeded,
-            0x01 => Rep::GeneralFailure,
-            0x02 => Rep::ConnectionNotAllowed,
-            0x03 => Rep::NetworkUnreachable,
-            0x04 => Rep::HostUnreachable,
-            0x05 => Rep::ConnectionRefused,
-            0x06 => Rep::TTLExpired,
-            0x07 => Rep::CommandNotSupported,
-            0x08 => Rep::AddressTypeNotSupported,
-            _ => return None,
-        };
-
-        let rsv = buf[2];
-
-        let atyp = match buf[3] {
-            0x01 => ATYP::V4,
-            0x03 => ATYP::DomainName,
-            0x04 => ATYP::V6,
-            _ => return None,
-        };
-
-        let bnd = match atyp {
-            ATYP::V4 => {
-                let (ip_port, _) = Parse::parse_ip_port(&buf[4..], 0x01)?;
-                if let crate::parse::AddrPort::V4(ip, port) = ip_port {
-                    AddrPort::V4(ip, port)
-                } else {
-                    return None;
-                }
-            }
-            ATYP::V6 => {
-                let (ip_port, _) = Parse::parse_ip_port(&buf[4..], 0x04)?;
-                if let crate::parse::AddrPort::V6(ip, port) = ip_port {
-                    AddrPort::V6(ip, port)
-                } else {
-                    return None;
-                }
-            }
-            ATYP::DomainName => {
-                let len = buf[4] as usize;
-                if buf.len() < 5 + len + 2 {
-                    return None;
-                }
-                let domain = String::from_utf8_lossy(&buf[5..5 + len]).to_string();
-                let port = u16::from_be_bytes([buf[5 + len], buf[5 + len + 1]]);
-                AddrPort::Domain(domain, port)
-            }
-        };
-
-        Some(ConnReply {
-            ver,
-            rep,
-            rsv,
-            atyp,
-            bnd,
-        })
-    }
 
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut buf = vec![self.ver, self.rep as u8, self.rsv, self.atyp as u8];
@@ -125,14 +60,11 @@ impl ConnReply {
 }
 
 impl TryFrom<&[u8]> for ConnReply {
-    type Error = anyhow::Error;
+    type Error = SocksError;
 
     fn try_from(buf: &[u8]) -> Result<Self, Self::Error> {
         if buf.len() < 4 {
-            return Err(anyhow!(
-                "Initial lenght cannot be smaller than 4 : {:?}",
-                buf
-            ));
+            return Err(SocksError::ReplyTooShort);
         }
 
         let ver = buf[0];
@@ -147,7 +79,7 @@ impl TryFrom<&[u8]> for ConnReply {
             0x06 => Rep::TTLExpired,
             0x07 => Rep::CommandNotSupported,
             0x08 => Rep::AddressTypeNotSupported,
-            _ => return Err(anyhow!("Invalid value for REP : {}", &buf[1])),
+            _ => return Err(SocksError::ConnRequestTooShort),
         };
 
         let rsv = buf[2];
@@ -156,32 +88,32 @@ impl TryFrom<&[u8]> for ConnReply {
             0x01 => ATYP::V4,
             0x03 => ATYP::DomainName,
             0x04 => ATYP::V6,
-            _ => return Err(anyhow!("Invalid value for ATYP : {}", &buf[3])),
+            other => return Err(SocksError::InvalidAddressType(other)),
         };
 
         let bnd = match atyp {
             ATYP::V4 => {
-                let (ip_port, _) = Parse::parse_ip_port(&buf[4..], 0x01)
-                    .ok_or_else(|| anyhow!("Cannot parse input : {:?}", &buf[4..]))?;
-                if let crate::parse::AddrPort::V4(ip, port) = ip_port {
+                let (ip_port, _) =
+                    Parse::parse_ip_port(&buf[4..], 0x01).ok_or(SocksError::ConnRequestTooShort)?;
+                if let AddrPort::V4(ip, port) = ip_port {
                     AddrPort::V4(ip, port)
                 } else {
-                    return Err(anyhow!("Invalid V4 : {:?}", ip_port));
+                    return Err(SocksError::InvalidAddressType(0x01));
                 }
             }
             ATYP::V6 => {
-                let (ip_port, _) = Parse::parse_ip_port(&buf[4..], 0x04)
-                    .ok_or_else(|| anyhow!("Cannot parse input : {:?}", &buf[4..]))?;
-                if let crate::parse::AddrPort::V6(ip, port) = ip_port {
+                let (ip_port, _) =
+                    Parse::parse_ip_port(&buf[4..], 0x04).ok_or(SocksError::ConnRequestTooShort)?;
+                if let AddrPort::V6(ip, port) = ip_port {
                     AddrPort::V6(ip, port)
                 } else {
-                    return Err(anyhow!("Invalid V6 : {:?}", ip_port));
+                    return Err(SocksError::InvalidAddressType(0x04));
                 }
             }
             ATYP::DomainName => {
                 let len = buf[4] as usize;
                 if buf.len() < 5 + len + 2 {
-                    return Err(anyhow!("Size for DomainName is too short : {}", buf.len()));
+                    return Err(SocksError::InvalidDomain);
                 }
                 let domain = String::from_utf8_lossy(&buf[5..5 + len]).to_string();
                 let port = u16::from_be_bytes([buf[5 + len], buf[5 + len + 1]]);
