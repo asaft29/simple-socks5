@@ -2,24 +2,43 @@ use crate::ATYP;
 use crate::error::SocksError;
 use crate::parse::{AddrPort, Parse};
 
+/// Represents the command of the SOCKS5 protocol.
 #[repr(u8)]
 #[derive(Debug, Copy, Clone)]
 pub enum CMD {
+    /// Represents a CONNECT command.
     Connect = 0x01,
+    /// Represents a BIND command.
     Bind = 0x02,
+    /// Represents a UDP ASSOCIATE command.
     UdpAssociate = 0x03,
 }
 
+/// Represents a connection request.
 #[derive(Debug)]
 pub struct ConnRequest {
+    /// The SOCKS5 protocol version.
     pub ver: u8, // 0x05
+    /// The command.
     pub cmd: CMD,
+    /// The reserved byte.
     pub rsv: u8, // 0x00
+    /// The address type.
     pub atyp: ATYP,
+    /// The destination address and port.
     pub dst: AddrPort,
 }
 
 impl ConnRequest {
+    /// Creates a new `ConnRequest`.
+    ///
+    /// # Arguments
+    ///
+    /// * `ver` - The SOCKS5 protocol version.
+    /// * `cmd` - The command.
+    /// * `rsv` - The reserved byte.
+    /// * `atyp` - The address type.
+    /// * `dst` - The destination address and port.
     pub fn new(ver: u8, cmd: CMD, rsv: u8, atyp: ATYP, dst: AddrPort) -> Self {
         Self {
             ver,
@@ -30,6 +49,7 @@ impl ConnRequest {
         }
     }
 
+    /// Converts the `ConnRequest` to a byte array.
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut buf = vec![self.ver, self.cmd as u8, self.rsv, self.atyp as u8];
 
@@ -56,6 +76,7 @@ impl ConnRequest {
 impl TryFrom<&[u8]> for ConnRequest {
     type Error = SocksError;
 
+    /// Converts a byte slice to a `ConnRequest`.
     fn try_from(buf: &[u8]) -> Result<Self, Self::Error> {
         if buf.len() < 4 {
             return Err(SocksError::ConnRequestTooShort);

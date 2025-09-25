@@ -19,18 +19,27 @@ use parse::AddrPort;
 
 use crate::error::SocksError;
 
+/// Represents an IPv4 address.
 pub type V4 = Ipv4Addr;
+/// Represents an IPv6 address.
 pub type V6 = Ipv6Addr;
 
+/// The SOCKS5 protocol version.
 const VER5: u8 = 0x05;
+/// The reserved byte, must be 0x00.
 const RSV: u8 = 0x00;
+/// The authentication version.
 const VER: u8 = 0x01;
 
+/// Represents the address type.
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum ATYP {
+    /// Represents an IPv4 address.
     V4 = 0x01,
+    /// Represents a domain name.
     DomainName = 0x03,
+    /// Represents an IPv6 address.
     V6 = 0x04,
 }
 
@@ -184,3 +193,4 @@ async fn handle_client(stream: &mut TcpStream) -> Result<(), SocksError> {
 
     Ok(())
 }
+

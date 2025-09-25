@@ -2,30 +2,55 @@ use crate::ATYP;
 use crate::error::SocksError;
 use crate::parse::{AddrPort, Parse};
 
+/// Represents the reply from the SOCKS5 server.
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Rep {
+    /// Represents a successful connection.
     Succeeded = 0x00,
+    /// Represents a general failure.
     GeneralFailure = 0x01,
+    /// Represents a connection that is not allowed.
     ConnectionNotAllowed = 0x02,
+    /// Represents a network that is unreachable.
     NetworkUnreachable = 0x03,
+    /// Represents a host that is unreachable.
     HostUnreachable = 0x04,
+    /// Represents a connection that was refused.
     ConnectionRefused = 0x05,
+    /// Represents a TTL that has expired.
     TTLExpired = 0x06,
+    /// Represents a command that is not supported.
     CommandNotSupported = 0x07,
+    /// Represents an address type that is not supported.
     AddressTypeNotSupported = 0x08,
 }
 
+/// Represents a connection reply.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConnReply {
+    /// The SOCKS5 protocol version.
     pub ver: u8, // 0x05
+    /// The reply from the server.
     pub rep: Rep,
+    /// The reserved byte.
     pub rsv: u8, // 0x00
+    /// The address type.
     pub atyp: ATYP,
+    /// The bound address and port.
     pub bnd: AddrPort,
 }
 
 impl ConnReply {
+    /// Creates a new `ConnReply`.
+    ///
+    /// # Arguments
+    ///
+    /// * `ver` - The SOCKS5 protocol version.
+    /// * `rep` - The reply from the server.
+    /// * `rsv` - The reserved byte.
+    /// * `atyp` - The address type.
+    /// * `bnd` - The bound address and port.
     pub fn new(ver: u8, rep: Rep, rsv: u8, atyp: ATYP, bnd: AddrPort) -> Self {
         Self {
             ver,
@@ -36,6 +61,7 @@ impl ConnReply {
         }
     }
 
+    /// Converts the `ConnReply` to a byte array.
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut buf = vec![self.ver, self.rep as u8, self.rsv, self.atyp as u8];
 
@@ -62,6 +88,7 @@ impl ConnReply {
 impl TryFrom<&[u8]> for ConnReply {
     type Error = SocksError;
 
+    /// Converts a byte slice to a `ConnReply`.
     fn try_from(buf: &[u8]) -> Result<Self, Self::Error> {
         if buf.len() < 4 {
             return Err(SocksError::ReplyTooShort);

@@ -1,28 +1,26 @@
 use std::net::{Ipv4Addr, Ipv6Addr};
 
-/// Helper enum to represent an IP address and port
-
+/// Represents a destination address and port.
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub enum AddrPort {
+    /// Represents an IPv4 address and port.
     V4(Ipv4Addr, u16),
+    /// Represents an IPv6 address and port.
     V6(Ipv6Addr, u16),
+    /// Represents a domain name and port.
     Domain(String, u16),
 }
 
-/// Parse IPv4 or IPv6 from a byte slice
-///
-/// # Arguments
-/// * `buf` - slice of bytes containing the address starting at offset 0
-/// * `atyp` - ATYP value: 0x01 = IPv4, 0x04 = IPv6
-///
-/// # Returns
-/// * Some((AddrPort, bytes_consumed)) if successful
-/// * None if buffer is too short or invalid
-///
-/// Empty struct that is a reference to the parsing methods
+/// A helper struct for parsing addresses.
 pub struct Parse;
 
 impl Parse {
+    /// Parses an IP address and port from a byte slice.
+    ///
+    /// # Arguments
+    ///
+    /// * `buf` - The byte slice to parse.
+    /// * `atyp` - The address type.
     pub fn parse_ip_port(buf: &[u8], atyp: u8) -> Option<(AddrPort, usize)> {
         match atyp {
             0x01 => {

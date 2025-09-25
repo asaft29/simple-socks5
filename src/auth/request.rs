@@ -1,15 +1,20 @@
 use crate::VER;
 use crate::error::SocksError;
 
+/// Represents an authentication request.
 pub struct AuthRequest {
+    /// The version of the authentication protocol.
     pub ver: u8,
+    /// The username.
     pub uname: String,
+    /// The password.
     pub passwd: String,
 }
 
 impl TryFrom<&[u8]> for AuthRequest {
     type Error = SocksError;
 
+    /// Converts a byte slice to an `AuthRequest`.
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         if bytes.len() < 2 {
             return Err(SocksError::AuthMessageTooShort);
