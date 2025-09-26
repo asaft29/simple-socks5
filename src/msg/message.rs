@@ -10,6 +10,17 @@ pub struct VersionMessage {
     pub methods: Vec<Method>,
 }
 
+impl VersionMessage {
+    /// Creates a new `VersionMessage`.
+    ///
+    /// # Arguments
+    ///
+    /// * `methods` - The methods supported by the client.
+    pub fn new(methods: Vec<Method>) -> Self {
+        Self { ver: 0x05, methods }
+    }
+}
+
 impl TryFrom<&[u8]> for VersionMessage {
     type Error = SocksError;
 
@@ -81,3 +92,4 @@ impl TryFrom<&[u8]> for MethodSelection {
         Ok(Self { ver, method })
     }
 }
+

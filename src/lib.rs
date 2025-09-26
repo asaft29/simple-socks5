@@ -1,7 +1,6 @@
-use std::env;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::{TcpListener, TcpStream, UdpSocket};
 
 pub mod auth;
 pub mod conn;
@@ -31,6 +30,8 @@ const RSV: u8 = 0x00;
 /// The authentication version.
 const VER: u8 = 0x01;
 
+type UserPassValidator = Box<dyn Fn(&str, &str) -> bool + Send + Sync>;
+
 /// Represents the address type.
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -45,152 +46,141 @@ pub enum ATYP {
 
 pub struct Socks5 {
     listener: TcpListener,
+    allow_no_auth: bool,
+    userpass_validator: Option<UserPassValidator>,
 }
 
 impl Socks5 {
-    pub async fn new(addr: &str) -> Result<Socks5, SocksError> {
+    /// Bind a new SOCKS5 server to an address
+    pub async fn bind(addr: &str) -> Result<Self, SocksError> {
         let listener = TcpListener::bind(addr).await?;
-        Ok(Socks5 { listener })
-    }
-
-    pub async fn run(&mut self) -> Result<(), SocksError> {
-        println!("SOCKS5 server running on {:?}", self.listener.local_addr()?);
-        loop {
-            let (mut stream, addr) = self.listener.accept().await?;
-            println!("Accepted connection from {:?}", addr);
-            tokio::spawn(async move {
-                if let Err(e) = handle_client(&mut stream).await {
-                    eprintln!("Error handling client {}: {:?}", addr, e);
-                }
-            });
-        }
-    }
-}
-
-async fn handle_client(stream: &mut TcpStream) -> Result<(), SocksError> {
-    let mut buf = [0u8; 512];
-
-    // --- SOCKS5 handshake ---
-    let n = stream.read(&mut buf).await?;
-    let version_msg = VersionMessage::try_from(&buf[..n])?;
-    println!("Client methods: {:?}", version_msg.methods);
-
-    let selected_method = version_msg
-        .methods
-        .iter()
-        .find_map(|m| match m {
-            Method::Fixed(FixedMethod::UsePass) => Some(Method::Fixed(FixedMethod::UsePass)),
-            Method::Fixed(FixedMethod::NoAuth) => Some(Method::Fixed(FixedMethod::NoAuth)),
-            _ => None,
+        Ok(Self {
+            listener,
+            allow_no_auth: false,
+            userpass_validator: None,
         })
-        .unwrap_or(Method::Fixed(FixedMethod::NoAcceptable));
-
-    let method_sel = msg::message::MethodSelection::new(selected_method);
-    stream.write_all(&method_sel.to_bytes()).await?;
-    if selected_method == Method::Fixed(FixedMethod::NoAcceptable) {
-        println!("No acceptable authentication methods.");
-        stream.shutdown().await?;
-        return Ok(());
     }
 
-    // --- Username/Password authentication (RFC 1929) ---
-    if selected_method == Method::Fixed(FixedMethod::UsePass) {
-        let n = stream.read(&mut buf).await?;
-        let auth_req = AuthRequest::try_from(&buf[..n])?;
-        println!(
-            "Auth request received: username={}, password={}",
-            auth_req.uname, auth_req.passwd
-        );
-
-        let expected_user =
-            env::var("PROXY_USER").map_err(|e| SocksError::AuthFailed(e.to_string()))?;
-        let expected_pass =
-            env::var("PROXY_PASS").map_err(|e| SocksError::AuthFailed(e.to_string()))?;
-
-        let auth_status = if auth_req.uname == expected_user && auth_req.passwd == expected_pass {
-            AuthStatus::Success
-        } else {
-            AuthStatus::Failure
-        };
-
-        let auth_reply = AuthReply::new(auth_status);
-        stream.write_all(&auth_reply.to_bytes()).await?;
-
-        if auth_status == AuthStatus::Failure {
-            println!("Authentication failed for user '{}'", auth_req.uname);
-            stream.shutdown().await?;
-            return Ok(());
-        }
-
-        println!("Authentication successful for user '{}'", auth_req.uname);
+    /// Enable `NO AUTH` method
+    pub fn allow_no_auth(&mut self) {
+        self.allow_no_auth = true;
     }
 
-    // --- SOCKS5 request ---
-    let n = stream.read(&mut buf).await?;
-    let request = ConnRequest::try_from(&buf[..n])?;
-
-    println!("Received SOCKS5 request:");
-    println!("  Version: {}", request.ver);
-    println!("  Command: {:?}", request.cmd);
-    println!("  Reserved: {}", request.rsv);
-    println!("  Address type: {:?}", request.atyp);
-
-    match &request.dst {
-        AddrPort::V4(ip, port) => println!("  AddrPort: IPv4 {}:{}", ip, port),
-        AddrPort::V6(ip, port) => println!("  AddrPort: IPv6 [{}]:{}", ip, port),
-        AddrPort::Domain(name, port) => println!("  AddrPort: Domain {}:{}", name, port),
-    }
-
-    let target_result = match &request.dst {
-        AddrPort::V4(ip, port) => TcpStream::connect((*ip, *port)).await,
-        AddrPort::V6(ip, port) => TcpStream::connect((*ip, *port)).await,
-        AddrPort::Domain(name, port) => TcpStream::connect((name.as_str(), *port)).await,
-    };
-
-    let mut target_stream = match target_result {
-        Ok(s) => s,
-        Err(_) => {
-            println!("Failed to connect to target");
-            let reply = ConnReply::new(
-                VER5,
-                Rep::HostUnreachable,
-                RSV,
-                ATYP::V4,
-                AddrPort::V4(Ipv4Addr::UNSPECIFIED, 0),
-            );
-            stream.write_all(&reply.to_bytes()).await?;
-            stream.shutdown().await?;
-            return Ok(());
-        }
-    };
-
-    let local_addr = target_stream.local_addr()?;
-    let bnd = match local_addr.ip() {
-        IpAddr::V4(ip) => AddrPort::V4(ip, local_addr.port()),
-        IpAddr::V6(ip) => AddrPort::V6(ip, local_addr.port()),
-    };
-
-    let reply = ConnReply::new(
-        VER5,
-        Rep::Succeeded,
-        RSV,
-        match bnd {
-            AddrPort::V4(_, _) => ATYP::V4,
-            AddrPort::V6(_, _) => ATYP::V6,
-            _ => ATYP::DomainName,
-        },
-        bnd,
-    );
-
-    stream.write_all(&reply.to_bytes()).await?;
-
-    if tokio::io::copy_bidirectional(stream, &mut target_stream)
-        .await
-        .is_err()
+    /// Enable `USERNAME/PASSWORD` method with validator closure
+    pub fn allow_userpass<F>(&mut self, validator: F)
+    where
+        F: Fn(&str, &str) -> bool + Send + Sync + 'static,
     {
-        println!("TCP connection closed");
+        self.userpass_validator = Some(Box::new(validator));
     }
 
-    Ok(())
-}
+    /// Accept a client connection
+    pub async fn accept(&self) -> Result<(TcpStream, SocketAddr), SocksError> {
+        let (stream, addr) = self.listener.accept().await?;
+        Ok((stream, addr))
+    }
 
+    /// Get the local address
+    pub fn local_addr(&self) -> Result<SocketAddr, SocksError> {
+        Ok(self.listener.local_addr()?)
+    }
+
+    // --- Protocol helpers ---
+
+    pub async fn read_version_message(
+        stream: &mut TcpStream,
+    ) -> Result<VersionMessage, SocksError> {
+        let mut buf = [0u8; 512];
+        let n = stream.read(&mut buf).await?;
+        VersionMessage::try_from(&buf[..n])
+    }
+
+    pub async fn send_method_selection(
+        stream: &mut TcpStream,
+        method: Method,
+    ) -> Result<(), SocksError> {
+        let sel = MethodSelection::new(method);
+        stream.write_all(&sel.to_bytes()).await?;
+        Ok(())
+    }
+
+    pub async fn read_auth_request(stream: &mut TcpStream) -> Result<AuthRequest, SocksError> {
+        let mut buf = [0u8; 512];
+        let n = stream.read(&mut buf).await?;
+        AuthRequest::try_from(&buf[..n])
+    }
+
+    pub async fn send_auth_reply(
+        stream: &mut TcpStream,
+        status: AuthStatus,
+    ) -> Result<(), SocksError> {
+        let reply = AuthReply::new(status);
+        stream.write_all(&reply.to_bytes()).await?;
+        Ok(())
+    }
+
+    pub async fn read_conn_request(stream: &mut TcpStream) -> Result<ConnRequest, SocksError> {
+        let mut buf = [0u8; 512];
+        let n = stream.read(&mut buf).await?;
+        ConnRequest::try_from(&buf[..n])
+    }
+
+    pub async fn send_conn_reply(
+        stream: &mut TcpStream,
+        rep: Rep,
+        atyp: ATYP,
+        addr: AddrPort,
+    ) -> Result<(), SocksError> {
+        let reply = ConnReply::new(0x05, rep, 0x00, atyp, addr);
+        stream.write_all(&reply.to_bytes()).await?;
+        Ok(())
+    }
+
+    /// Create a UDP socket for `UDP ASSOCIATE`
+    pub async fn bind_udp(addr: &str) -> Result<UdpSocket, SocksError> {
+        let sock = UdpSocket::bind(addr).await?;
+        Ok(sock)
+    }
+
+    /// Perform authentication according to configured methods
+    pub async fn authenticate(&self, stream: &mut TcpStream) -> Result<(), SocksError> {
+        let version_msg = Self::read_version_message(stream).await?;
+
+        let mut selected = Method::Fixed(FixedMethod::NoAcceptable);
+
+        if self.allow_no_auth
+            && version_msg
+                .methods
+                .contains(&Method::Fixed(FixedMethod::NoAuth))
+        {
+            selected = Method::Fixed(FixedMethod::NoAuth);
+        } else if self.userpass_validator.is_some()
+            && version_msg
+                .methods
+                .contains(&Method::Fixed(FixedMethod::UsePass))
+        {
+            selected = Method::Fixed(FixedMethod::UsePass);
+        }
+
+        Self::send_method_selection(stream, selected).await?;
+
+        match selected {
+            Method::Fixed(FixedMethod::NoAuth) => Ok(()),
+
+            Method::Fixed(FixedMethod::UsePass) => {
+                let auth_req = Self::read_auth_request(stream).await?;
+                let validator = self.userpass_validator.as_ref().unwrap();
+
+                if validator(&auth_req.uname, &auth_req.passwd) {
+                    Self::send_auth_reply(stream, AuthStatus::Success).await?;
+                    Ok(())
+                } else {
+                    Self::send_auth_reply(stream, AuthStatus::Failure).await?;
+                    Err(SocksError::AuthFailed("invalid credentials".into()))
+                }
+            }
+
+            _ => Err(SocksError::AuthFailed("no acceptable method".into())),
+        }
+    }
+}

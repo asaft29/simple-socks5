@@ -4,7 +4,7 @@ use crate::parse::{AddrPort, Parse};
 
 /// Represents the command of the SOCKS5 protocol.
 #[repr(u8)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum CMD {
     /// Represents a CONNECT command.
     Connect = 0x01,
@@ -139,3 +139,4 @@ impl TryFrom<&[u8]> for ConnRequest {
         })
     }
 }
+

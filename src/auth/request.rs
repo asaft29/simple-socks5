@@ -11,6 +11,22 @@ pub struct AuthRequest {
     pub passwd: String,
 }
 
+impl AuthRequest {
+    /// Creates a new `AuthRequest`.
+    ///
+    /// # Arguments
+    ///
+    /// * `uname` - The username.
+    /// * `passwd` - The password.
+    pub fn new(uname: String, passwd: String) -> Self {
+        Self {
+            ver: VER,
+            uname,
+            passwd,
+        }
+    }
+}
+
 impl TryFrom<&[u8]> for AuthRequest {
     type Error = SocksError;
 
@@ -46,3 +62,4 @@ impl TryFrom<&[u8]> for AuthRequest {
         Ok(Self { ver, uname, passwd })
     }
 }
+
