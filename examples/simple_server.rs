@@ -15,9 +15,12 @@ async fn main() -> Result<(), SocksError> {
         .compact()
         .init();
 
-    let mut server = Socks5::bind("[::1]:1080").await?;
+    // Both IPv4 and IPv6 work
+    let mut server = Socks5::bind("127.0.0.1:1080").await?;
     server.allow_no_auth();
-    server.allow_userpass(|u, p| u == "admin" && p == "admin");
+
+    // Example with a username and password if you need authentication
+    // server.allow_userpass(|u, p| u == "admin" && p == "admin");
 
     let server = Arc::new(server);
 

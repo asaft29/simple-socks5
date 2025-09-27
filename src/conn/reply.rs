@@ -1,56 +1,69 @@
+//! SOCKS5 server connection reply (RFC 1928 §6).
+//!
+//! After processing a request, the server replies with:
+//!
+//! ```text
+//! +----+-----+-------+------+----------+----------+
+//! |VER | REP |  RSV  | ATYP | BND.ADDR | BND.PORT |
+//! +----+-----+-------+------+----------+----------+
+//! | 1  |  1  | X'00' |  1   | Variable |    2     |
+//! +----+-----+-------+------+----------+----------+
+//!
+//! o VER       - protocol version: X'05'
+//! o REP       - reply field, see below
+//! o RSV       - reserved, must be 0x00
+//! o ATYP      - address type of BND.ADDR
+//! o BND.ADDR  - server bound address
+//! o BND.PORT  - server bound port in network byte order
+//!
+//! The BND fields are meaningful in BIND/UDP_ASSOCIATE, but may be ignored in CONNECT.
+//! ```
+
 use crate::ATYP;
 use crate::error::SocksError;
 use crate::parse::{AddrPort, Parse};
 
-/// Represents the reply from the SOCKS5 server.
+/// Reply codes (`REP`) for SOCKS5 connection replies (RFC 1928 §6).
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Rep {
-    /// Represents a successful connection.
+    /// 0x00 - Succeeded
     Succeeded = 0x00,
-    /// Represents a general failure.
+    /// 0x01 - General SOCKS server failure
     GeneralFailure = 0x01,
-    /// Represents a connection that is not allowed.
+    /// 0x02 - Connection not allowed by ruleset
     ConnectionNotAllowed = 0x02,
-    /// Represents a network that is unreachable.
+    /// 0x03 - Network unreachable
     NetworkUnreachable = 0x03,
-    /// Represents a host that is unreachable.
+    /// 0x04 - Host unreachable
     HostUnreachable = 0x04,
-    /// Represents a connection that was refused.
+    /// 0x05 - Connection refused by destination host
     ConnectionRefused = 0x05,
-    /// Represents a TTL that has expired.
+    /// 0x06 - TTL expired
     TTLExpired = 0x06,
-    /// Represents a command that is not supported.
+    /// 0x07 - Command not supported
     CommandNotSupported = 0x07,
-    /// Represents an address type that is not supported.
+    /// 0x08 - Address type not supported
     AddressTypeNotSupported = 0x08,
 }
 
-/// Represents a connection reply.
+/// Represents a SOCKS5 server reply (RFC 1928 §6).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConnReply {
-    /// The SOCKS5 protocol version.
-    pub ver: u8, // 0x05
-    /// The reply from the server.
+    /// Protocol version (`VER`), must be 0x05.
+    pub ver: u8,
+    /// Reply field (`REP`): success or error status.
     pub rep: Rep,
-    /// The reserved byte.
-    pub rsv: u8, // 0x00
-    /// The address type.
+    /// Reserved byte (`RSV`), must be 0x00.
+    pub rsv: u8,
+    /// Address type (`ATYP`).
     pub atyp: ATYP,
-    /// The bound address and port.
+    /// Bound address and port (`BND.ADDR`, `BND.PORT`).
     pub bnd: AddrPort,
 }
 
 impl ConnReply {
     /// Creates a new `ConnReply`.
-    ///
-    /// # Arguments
-    ///
-    /// * `ver` - The SOCKS5 protocol version.
-    /// * `rep` - The reply from the server.
-    /// * `rsv` - The reserved byte.
-    /// * `atyp` - The address type.
-    /// * `bnd` - The bound address and port.
     pub fn new(ver: u8, rep: Rep, rsv: u8, atyp: ATYP, bnd: AddrPort) -> Self {
         Self {
             ver,
@@ -61,7 +74,7 @@ impl ConnReply {
         }
     }
 
-    /// Converts the `ConnReply` to a byte array.
+    /// Serializes the reply into the SOCKS5 wire format.
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut buf = vec![self.ver, self.rep as u8, self.rsv, self.atyp as u8];
 
@@ -88,7 +101,7 @@ impl ConnReply {
 impl TryFrom<&[u8]> for ConnReply {
     type Error = SocksError;
 
-    /// Converts a byte slice to a `ConnReply`.
+    /// Parses a SOCKS5 connection reply from raw bytes.
     fn try_from(buf: &[u8]) -> Result<Self, Self::Error> {
         if buf.len() < 4 {
             return Err(SocksError::ReplyTooShort);
@@ -157,3 +170,4 @@ impl TryFrom<&[u8]> for ConnReply {
         })
     }
 }
+

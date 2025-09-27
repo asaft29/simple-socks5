@@ -1,3 +1,15 @@
+//! A minimal asynchronous SOCKS5 proxy implementation using Tokio.
+//!
+//! This crate provides structures and helpers for handling the SOCKS5 protocol
+//! (RFC 1928) and optional username/password authentication (RFC 1929).
+//! It supports TCP `CONNECT`, `BIND`, and `UDP ASSOCIATE` commands, with
+//! configurable authentication methods.
+//!
+//! **UDP functionality is not yet fully implemented.**
+//! The server can bind a UDP socket and send a `UDP ASSOCIATE` reply, but
+//! actual UDP packet forwarding and relay logic is not handled yet.
+//! Users should not rely on UDP support for production usage.
+
 use std::fmt;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -26,15 +38,15 @@ pub type V6 = Ipv6Addr;
 
 type UserPassValidator = Box<dyn Fn(&str, &str) -> bool + Send + Sync>;
 
-/// Represents the address type.
+/// Represents the address type in SOCKS5 messages.
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum ATYP {
-    /// Represents an IPv4 address.
+    /// IPv4 address
     V4 = 0x01,
-    /// Represents a domain name.
+    /// Domain name
     DomainName = 0x03,
-    /// Represents an IPv6 address.
+    /// IPv6 address
     V6 = 0x04,
 }
 
@@ -48,7 +60,14 @@ impl fmt::Display for ATYP {
     }
 }
 
-/// SOCKS5 strut used to handle the proxy server
+/// The main SOCKS5 server struct.
+///
+/// Handles incoming TCP connections, negotiates authentication, and manages
+/// SOCKS5 commands (`CONNECT`, `BIND`, `UDP ASSOCIATE`).
+///
+/// **⚠️ UDP ASSOCIATE is partially implemented.**
+/// The server currently only supports binding a UDP socket and sending the
+/// reply to the client. Actual UDP packet forwarding is **not implemented** yet.
 pub struct Socks5 {
     listener: TcpListener,
     allow_no_auth: bool,
@@ -56,7 +75,15 @@ pub struct Socks5 {
 }
 
 impl Socks5 {
-    /// Bind a new SOCKS5 server to an address
+    /// Bind a new SOCKS5 server to an address.
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - The address to bind to, e.g., `"127.0.0.1:1080"`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `SocksError::Io` if binding fails.
     pub async fn bind(addr: &str) -> Result<Self, SocksError> {
         let listener = TcpListener::bind(addr).await?;
         Ok(Self {
@@ -66,12 +93,16 @@ impl Socks5 {
         })
     }
 
-    /// Enable `NO AUTH` method
+    /// Enable the `NO AUTH` authentication method.
     pub fn allow_no_auth(&mut self) {
         self.allow_no_auth = true;
     }
 
-    /// Enable `USERNAME/PASSWORD` method with validator closure
+    /// Enable username/password authentication with a custom validator closure.
+    ///
+    /// # Arguments
+    ///
+    /// * `validator` - A closure that receives username and password and returns `true` if valid.
     pub fn allow_userpass<F>(&mut self, validator: F)
     where
         F: Fn(&str, &str) -> bool + Send + Sync + 'static,
@@ -79,19 +110,24 @@ impl Socks5 {
         self.userpass_validator = Some(Box::new(validator));
     }
 
-    /// Accept a client connection
+    /// Accept a client TCP connection.
+    ///
+    /// # Returns
+    ///
+    /// A tuple of `(TcpStream, SocketAddr)` representing the connected client.
     pub async fn accept(&self) -> Result<(TcpStream, SocketAddr), SocksError> {
         let (stream, addr) = self.listener.accept().await?;
         Ok((stream, addr))
     }
 
-    /// Get the local address
+    /// Returns the local address of the server.
     pub fn local_addr(&self) -> Result<SocketAddr, SocksError> {
         Ok(self.listener.local_addr()?)
     }
 
     // --- Protocol helpers ---
 
+    /// Read a SOCKS5 version/method message from the client.
     pub async fn read_version_message(
         stream: &mut TcpStream,
     ) -> Result<VersionMessage, SocksError> {
@@ -100,6 +136,7 @@ impl Socks5 {
         VersionMessage::try_from(&buf[..n])
     }
 
+    /// Send the server's method selection message.
     pub async fn send_method_selection(
         stream: &mut TcpStream,
         method: Method,
@@ -109,12 +146,14 @@ impl Socks5 {
         Ok(())
     }
 
+    /// Read a username/password authentication request from the client.
     pub async fn read_auth_request(stream: &mut TcpStream) -> Result<AuthRequest, SocksError> {
         let mut buf = [0u8; 512];
         let n = stream.read(&mut buf).await?;
         AuthRequest::try_from(&buf[..n])
     }
 
+    /// Send an authentication reply to the client.
     pub async fn send_auth_reply(
         stream: &mut TcpStream,
         status: AuthStatus,
@@ -124,12 +163,14 @@ impl Socks5 {
         Ok(())
     }
 
+    /// Read a SOCKS5 connection request from the client.
     pub async fn read_conn_request(stream: &mut TcpStream) -> Result<ConnRequest, SocksError> {
         let mut buf = [0u8; 512];
         let n = stream.read(&mut buf).await?;
         ConnRequest::try_from(&buf[..n])
     }
 
+    /// Send a connection reply to the client.
     pub async fn send_conn_reply(
         stream: &mut TcpStream,
         rep: Rep,
@@ -141,13 +182,17 @@ impl Socks5 {
         Ok(())
     }
 
-    /// Create a UDP socket for `UDP ASSOCIATE`
+    /// Bind a UDP socket for `UDP ASSOCIATE`.
+    ///
+    /// **Actual UDP relay is not implemented yet.**
     pub async fn bind_udp(addr: &str) -> Result<UdpSocket, SocksError> {
         let sock = UdpSocket::bind(addr).await?;
         Ok(sock)
     }
 
-    /// Perform authentication according to configured methods
+    /// Perform authentication according to the configured methods.
+    ///
+    /// Negotiates between `NO AUTH` and `USERNAME/PASSWORD` methods if enabled.
     pub async fn authenticate(&self, stream: &mut TcpStream) -> Result<(), SocksError> {
         let version_msg = Self::read_version_message(stream).await?;
 

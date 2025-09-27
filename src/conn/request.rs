@@ -1,17 +1,42 @@
+//! SOCKS5 client connection request (RFC 1928 §4).
+//!
+//! After negotiation, the client sends a request message:
+//!
+//! ```text
+//! +----+-----+-------+------+----------+----------+
+//! |VER | CMD |  RSV  | ATYP | DST.ADDR | DST.PORT |
+//! +----+-----+-------+------+----------+----------+
+//! | 1  |  1  | X'00' |  1   | Variable |    2     |
+//! +----+-----+-------+------+----------+----------+
+//!
+//! o VER      - protocol version: X'05'
+//! o CMD      - command code:
+//!                0x01 = CONNECT
+//!                0x02 = BIND
+//!                0x03 = UDP ASSOCIATE
+//! o RSV      - reserved, must be 0x00
+//! o ATYP     - address type of DST.ADDR
+//!                0x01 = IPv4 address
+//!                0x03 = Domain name
+//!                0x04 = IPv6 address
+//! o DST.ADDR - destination address
+//! o DST.PORT - destination port in network byte order
+//! ```
+
 use crate::ATYP;
 use crate::error::SocksError;
 use crate::parse::{AddrPort, Parse};
 use std::fmt;
 
-/// Represents the command of the SOCKS5 protocol.
+/// The command (`CMD`) of a SOCKS5 request (RFC 1928 §4).
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum CMD {
-    /// Represents a CONNECT command.
+    /// CONNECT command (0x01): establishes a TCP connection to the target host.
     Connect = 0x01,
-    /// Represents a BIND command.
+    /// BIND command (0x02): used for inbound connections (rarely implemented).
     Bind = 0x02,
-    /// Represents a UDP ASSOCIATE command.
+    /// UDP ASSOCIATE command (0x03): establishes a UDP relay.
     UdpAssociate = 0x03,
 }
 
@@ -25,31 +50,23 @@ impl fmt::Display for CMD {
     }
 }
 
-/// Represents a connection request.
+/// Represents a SOCKS5 connection request (RFC 1928 §4).
 #[derive(Debug)]
 pub struct ConnRequest {
-    /// The SOCKS5 protocol version.
-    pub ver: u8, // 0x05
-    /// The command.
+    /// Protocol version (`VER`), must be 0x05.
+    pub ver: u8,
+    /// Command (`CMD`): CONNECT, BIND, or UDP ASSOCIATE.
     pub cmd: CMD,
-    /// The reserved byte.
-    pub rsv: u8, // 0x00
-    /// The address type.
+    /// Reserved byte (`RSV`), must be 0x00.
+    pub rsv: u8,
+    /// Address type (`ATYP`): IPv4, IPv6, or domain name.
     pub atyp: ATYP,
-    /// The destination address and port.
+    /// Destination address and port (`DST.ADDR`, `DST.PORT`).
     pub dst: AddrPort,
 }
 
 impl ConnRequest {
     /// Creates a new `ConnRequest`.
-    ///
-    /// # Arguments
-    ///
-    /// * `ver` - The SOCKS5 protocol version.
-    /// * `cmd` - The command.
-    /// * `rsv` - The reserved byte.
-    /// * `atyp` - The address type.
-    /// * `dst` - The destination address and port.
     pub fn new(ver: u8, cmd: CMD, rsv: u8, atyp: ATYP, dst: AddrPort) -> Self {
         Self {
             ver,
@@ -60,7 +77,7 @@ impl ConnRequest {
         }
     }
 
-    /// Converts the `ConnRequest` to a byte array.
+    /// Serializes the request into the SOCKS5 wire format.
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut buf = vec![self.ver, self.cmd as u8, self.rsv, self.atyp as u8];
 
@@ -99,7 +116,7 @@ impl fmt::Display for ConnRequest {
 impl TryFrom<&[u8]> for ConnRequest {
     type Error = SocksError;
 
-    /// Converts a byte slice to a `ConnRequest`.
+    /// Parses a SOCKS5 connection request from raw bytes.
     fn try_from(buf: &[u8]) -> Result<Self, Self::Error> {
         if buf.len() < 4 {
             return Err(SocksError::ConnRequestTooShort);
