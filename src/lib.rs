@@ -1,3 +1,4 @@
+use std::fmt;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
@@ -23,13 +24,6 @@ pub type V4 = Ipv4Addr;
 /// Represents an IPv6 address.
 pub type V6 = Ipv6Addr;
 
-/// The SOCKS5 protocol version.
-const VER5: u8 = 0x05;
-/// The reserved byte, must be 0x00.
-const RSV: u8 = 0x00;
-/// The authentication version.
-const VER: u8 = 0x01;
-
 type UserPassValidator = Box<dyn Fn(&str, &str) -> bool + Send + Sync>;
 
 /// Represents the address type.
@@ -44,6 +38,17 @@ pub enum ATYP {
     V6 = 0x04,
 }
 
+impl fmt::Display for ATYP {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ATYP::V4 => write!(f, "IPv4"),
+            ATYP::V6 => write!(f, "IPv6"),
+            ATYP::DomainName => write!(f, "Domain"),
+        }
+    }
+}
+
+/// SOCKS5 strut used to handle the proxy server
 pub struct Socks5 {
     listener: TcpListener,
     allow_no_auth: bool,

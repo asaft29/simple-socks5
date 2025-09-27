@@ -1,6 +1,7 @@
 use crate::ATYP;
 use crate::error::SocksError;
 use crate::parse::{AddrPort, Parse};
+use std::fmt;
 
 /// Represents the command of the SOCKS5 protocol.
 #[repr(u8)]
@@ -12,6 +13,16 @@ pub enum CMD {
     Bind = 0x02,
     /// Represents a UDP ASSOCIATE command.
     UdpAssociate = 0x03,
+}
+
+impl fmt::Display for CMD {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            CMD::Connect => write!(f, "CONNECT"),
+            CMD::Bind => write!(f, "BIND"),
+            CMD::UdpAssociate => write!(f, "UDP_ASSOCIATE"),
+        }
+    }
 }
 
 /// Represents a connection request.
@@ -70,6 +81,18 @@ impl ConnRequest {
         }
 
         buf
+    }
+}
+
+impl fmt::Display for ConnRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "SOCKS5 Request {{")?;
+        writeln!(f, "  CMD : {}", self.cmd)?;
+        writeln!(f, "  ATYP: {}", self.atyp)?;
+        writeln!(f, "  DST : {}", self.dst)?;
+        writeln!(f, "  VER : {}", self.ver)?;
+        writeln!(f, "  RSV : {}", self.rsv)?;
+        write!(f, "}}")
     }
 }
 
@@ -139,4 +162,3 @@ impl TryFrom<&[u8]> for ConnRequest {
         })
     }
 }
-

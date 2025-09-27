@@ -5,49 +5,67 @@ use std::sync::Arc;
 use tokio::io;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
+use tracing::{error, info, warn};
 
 #[tokio::main]
 async fn main() -> Result<(), SocksError> {
-    let mut server = Socks5::bind("127.0.0.1:1080").await?;
+    tracing_subscriber::fmt()
+        .with_target(false)
+        .with_level(true)
+        .compact()
+        .init();
+
+    let mut server = Socks5::bind("[::1]:1080").await?;
     server.allow_no_auth();
     server.allow_userpass(|u, p| u == "admin" && p == "admin");
 
     let server = Arc::new(server);
 
-    println!("SOCKS5 proxy listening on {}", server.local_addr()?);
+    info!("SOCKS5 proxy listening on {}", server.local_addr()?);
 
     loop {
         let (client, addr) = server.accept().await?;
         let server_ref = Arc::clone(&server);
 
         tokio::spawn(async move {
-            if let Err(e) = handle_client(server_ref, client).await {
-                eprintln!("Error with client {}: {:?}", addr, e);
+            if let Err(e) = handle_client(server_ref, client, addr).await {
+                error!("Client {addr} error: {e}");
             }
         });
     }
 }
 
-async fn handle_client(server: Arc<Socks5>, mut stream: TcpStream) -> Result<(), SocksError> {
+async fn handle_client(
+    server: Arc<Socks5>,
+    mut stream: TcpStream,
+    addr: std::net::SocketAddr,
+) -> Result<(), SocksError> {
+    info!("New client connected from {addr}");
+
     if let Err(e) = server.authenticate(&mut stream).await {
-        eprintln!("Authentication failed: {:?}", e);
+        warn!("Authentication failed for {addr}: {e}");
         let _ = stream.shutdown().await;
         return Ok(());
     }
+    info!("Authentication succeeded for {addr}");
 
     let req = match Socks5::read_conn_request(&mut stream).await {
-        Ok(r) => r,
+        Ok(r) => {
+            info!(client=%addr, "Connection request");
+            info!(request=%r, "Request format");
+            r
+        }
         Err(e) => {
-            eprintln!("Failed to read connection request: {:?}", e);
+            error!("Failed to read connection request from {addr}: {e}");
             let _ = stream.shutdown().await;
             return Ok(());
         }
     };
 
-    println!("Command = {:?}", req.cmd);
-
     match req.cmd {
         CMD::Connect => {
+            info!(client=%addr, dest=%req.dst, "Connecting to destination");
+
             let mut target = match req.dst {
                 AddrPort::V4(ip, port) => TcpStream::connect((ip, port)).await?,
                 AddrPort::V6(ip, port) => TcpStream::connect((ip, port)).await?,
@@ -68,14 +86,19 @@ async fn handle_client(server: Arc<Socks5>, mut stream: TcpStream) -> Result<(),
                 _ => ATYP::DomainName,
             };
 
+            info!(client=%addr, bind=%bnd, atyp=%atyp, "Connection established");
+
             Socks5::send_conn_reply(&mut stream, Rep::Succeeded, atyp, bnd).await?;
 
             if let Err(e) = io::copy_bidirectional(&mut stream, &mut target).await {
-                eprintln!("TCP Connection closed: {:?}", e);
+                warn!("TCP connection with {addr} closed with error: {e}");
+            } else {
+                info!("TCP connection with {addr} closed gracefully");
             }
         }
 
         _ => {
+            warn!("Unsupported command from {addr}: {}", req.cmd);
             Socks5::send_conn_reply(
                 &mut stream,
                 Rep::CommandNotSupported,

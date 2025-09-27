@@ -1,4 +1,3 @@
-use crate::VER;
 use crate::error::SocksError;
 
 /// Represents an authentication request.
@@ -20,7 +19,7 @@ impl AuthRequest {
     /// * `passwd` - The password.
     pub fn new(uname: String, passwd: String) -> Self {
         Self {
-            ver: VER,
+            ver: 0x01,
             uname,
             passwd,
         }
@@ -37,7 +36,7 @@ impl TryFrom<&[u8]> for AuthRequest {
         }
 
         let ver = bytes[0];
-        if ver != VER {
+        if ver != 0x01 {
             return Err(SocksError::UnsupportedAuthVersion(ver));
         }
 
@@ -62,4 +61,3 @@ impl TryFrom<&[u8]> for AuthRequest {
         Ok(Self { ver, uname, passwd })
     }
 }
-

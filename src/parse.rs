@@ -1,3 +1,4 @@
+use std::fmt;
 use std::net::{Ipv4Addr, Ipv6Addr};
 
 /// Represents a destination address and port.
@@ -9,6 +10,16 @@ pub enum AddrPort {
     V6(Ipv6Addr, u16),
     /// Represents a domain name and port.
     Domain(String, u16),
+}
+
+impl fmt::Display for AddrPort {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            AddrPort::V4(ip, port) => write!(f, "{}:{}", ip, port),
+            AddrPort::V6(ip, port) => write!(f, "[{}]:{}", ip, port),
+            AddrPort::Domain(domain, port) => write!(f, "{}:{}", domain, port),
+        }
+    }
 }
 
 /// A helper struct for parsing addresses.
@@ -54,3 +65,4 @@ impl Parse {
         }
     }
 }
+
