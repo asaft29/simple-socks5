@@ -65,7 +65,7 @@ impl fmt::Display for ATYP {
 /// Handles incoming TCP connections, negotiates authentication, and manages
 /// SOCKS5 commands (`CONNECT`, `BIND`, `UDP ASSOCIATE`).
 ///
-/// **⚠️ UDP ASSOCIATE is partially implemented.**
+/// **UDP ASSOCIATE is partially implemented.**
 /// The server currently only supports binding a UDP socket and sending the
 /// reply to the client. Actual UDP packet forwarding is **not implemented** yet.
 pub struct Socks5 {

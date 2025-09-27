@@ -43,8 +43,8 @@ impl VersionMessage {
     ///
     /// # Example
     /// ```
-    /// use socks5::message::VersionMessage;
-    /// use socks5::method::{FixedMethod, Method};
+    /// use simple_socks5::msg::message::VersionMessage;
+    /// use simple_socks5::msg::method::{FixedMethod, Method};
     ///
     /// let msg = VersionMessage::new(vec![Method::Fixed(FixedMethod::NoAuth)]);
     /// assert_eq!(msg.ver, 0x05);
@@ -118,8 +118,8 @@ impl MethodSelection {
     ///
     /// # Example
     /// ```
-    /// use socks5::message::MethodSelection;
-    /// use socks5::method::{FixedMethod, Method};
+    /// use simple_socks5::msg::message::MethodSelection;
+    /// use simple_socks5::msg::method::{FixedMethod, Method};
     ///
     /// let sel = MethodSelection::new(Method::Fixed(FixedMethod::NoAuth));
     /// assert_eq!(sel.to_bytes(), [0x05, 0x00]);

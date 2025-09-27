@@ -239,7 +239,7 @@ dependencies = [
 
 [[package]]
 name = "simple_socks5"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "thiserror",
  "tokio",

@@ -1,10 +1,15 @@
 [package]
 name = "simple_socks5"
-version = "0.1.0"
+version = "0.1.2"
 edition = "2024"
 authors = ["Rares-Stefan Asaftei <rasaft29@gmail.com>"]
+description = "A simple, lightweight and async SOCKS5 proxy server library"
+keywords = ["socks5", "proxy", "tokio", "async"]
+categories = ["network-programming", "asynchronous"]
 license = "MIT"
-repository = "https://github.com/asaft29/SOCKRS5"
+repository = "https://github.com/asaft29/simple_socks5"
+homepage = "https://github.com/asaft29/simple_socks5"
+documentation = "https://docs.rs/simple_socks5"
 readme = "README.md"
 
 [lib]

@@ -1,6 +1,9 @@
-# simple-socks5
+# simple_socks5
 
-`simple-socks5` is a lightweight, asynchronous Rust library that makes it easy to run a SOCKS5 proxy server, following [RFC 1928](https://tools.ietf.org/html/rfc1928). 
+[![Crates.io](https://img.shields.io/crates/v/simple-socks5.svg)](https://crates.io/crates/simple_socks5)
+[![Docs.rs](https://docs.rs/simple_socks5/badge.svg)](https://docs.rs/simple_socks5)
+
+`simple_socks5` is a lightweight, asynchronous Rust library that makes it easy to run a SOCKS5 proxy server, following [RFC 1928](https://tools.ietf.org/html/rfc1928). 
 
 It’s designed to be used **with web browsers as clients**, and has been tested with Firefox and Chromium using both "No Authentication" and "Username/Password" authentication ([RFC 1929](https://tools.ietf.org/html/rfc1929)).
 
@@ -20,5 +23,5 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-simple-socks5 = "0.1.0"
+simple_socks5 = "0.1"
 

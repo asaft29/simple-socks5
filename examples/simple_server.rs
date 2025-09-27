@@ -96,7 +96,7 @@ async fn handle_client(
             if let Err(e) = io::copy_bidirectional(&mut stream, &mut target).await {
                 warn!("TCP connection with {addr} closed with error: {e}");
             } else {
-                info!("TCP connection with {addr} closed gracefully");
+                info!("TCP connection with {addr} closed");
             }
         }
 

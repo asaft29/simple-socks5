@@ -9,7 +9,7 @@
 //!
 //! Example usage:
 //! ```rust
-//! use socks5::parse::{AddrPort, Parse};
+//! use simple_socks5::parse::{AddrPort, Parse};
 //!
 //! // Example: IPv4 address 127.0.0.1:8080
 //! let buf = [127, 0, 0, 1, 0x1F, 0x90]; // 127.0.0.1:8080
